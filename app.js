@@ -1,35 +1,195 @@
 /* =========================
-   Data model
-   item = { id, word, sentence, correctCount }
-   stored in localStorage
+   Firebase (Auth + Firestore)
 ========================= */
-const STORAGE_KEY = "minwoo_vocab_v1";
+import { initializeApp } from "https://www.gstatic.com/firebasejs/12.0.0/firebase-app.js";
+import {
+  getFirestore,
+  collection,
+  addDoc,
+  getDocs,
+  onSnapshot,
+  query,
+  orderBy,
+  doc,
+  updateDoc,
+  deleteDoc,
+  writeBatch,
+  serverTimestamp,
+} from "https://www.gstatic.com/firebasejs/12.0.0/firebase-firestore.js";
+import {
+  getAuth,
+  GoogleAuthProvider,
+  signInWithPopup,
+  signOut,
+  onAuthStateChanged,
+} from "https://www.gstatic.com/firebasejs/12.0.0/firebase-auth.js";
 
-function loadItems() {
-  try {
-    const raw = localStorage.getItem(STORAGE_KEY);
-    if (!raw) return [];
-    const parsed = JSON.parse(raw);
-    if (!Array.isArray(parsed)) return [];
-    return parsed
-      .filter((x) => x && typeof x.word === "string" && typeof x.sentence === "string")
-      .map((x) => ({
-        id: String(x.id ?? (crypto.randomUUID?.() ?? Date.now())),
-        word: x.word.trim(),
-        sentence: x.sentence.trim(),
-        correctCount: Number.isFinite(x.correctCount) ? x.correctCount : 0,
-      }));
-  } catch {
-    return [];
+const firebaseConfig = {
+  apiKey: "AIzaSyAURdJnmzETZGjUC0z4OKXrsihbWZBdJTs",
+  authDomain: "minwoo-vocab.firebaseapp.com",
+  projectId: "minwoo-vocab",
+  storageBucket: "minwoo-vocab.firebasestorage.app",
+  messagingSenderId: "377857009776",
+  appId: "1:377857009776:web:0cd2230154d05916e76cb5",
+};
+
+const app = initializeApp(firebaseConfig);
+const db = getFirestore(app);
+const auth = getAuth(app);
+const provider = new GoogleAuthProvider();
+
+/* =========================
+   In-memory cache (real-time)
+========================= */
+let currentUid = null;
+let itemsCache = []; // { id, word, sentence, correctCount, createdAt }
+let unsubItems = null;
+
+/* =========================
+   Small UI: auth buttons (injected)
+========================= */
+function ensureAuthUI() {
+  // header에 버튼을 끼워넣기 (기존 HTML 수정 안 해도 됨)
+  const headerRight =
+    document.querySelector(".topRight") || // 혹시 있으면 사용
+    document.getElementById("headerRight") ||
+    document.querySelector("header") ||
+    document.body;
+
+  let wrap = document.getElementById("authWrap");
+  if (!wrap) {
+    wrap = document.createElement("div");
+    wrap.id = "authWrap";
+    wrap.style.position = "fixed";
+    wrap.style.top = "14px";
+    wrap.style.right = "14px";
+    wrap.style.zIndex = "9999";
+    wrap.style.display = "flex";
+    wrap.style.gap = "8px";
+    headerRight.appendChild(wrap);
   }
+
+  let loginBtn = document.getElementById("loginBtn");
+  if (!loginBtn) {
+    loginBtn = document.createElement("button");
+    loginBtn.id = "loginBtn";
+    loginBtn.textContent = "Google 로그인";
+    loginBtn.className = "smallBtn";
+    loginBtn.addEventListener("click", async () => {
+      try {
+        await signInWithPopup(auth, provider);
+      } catch (e) {
+        alert("로그인 실패: " + (e?.message ?? e));
+      }
+    });
+    wrap.appendChild(loginBtn);
+  }
+
+  let logoutBtn = document.getElementById("logoutBtn");
+  if (!logoutBtn) {
+    logoutBtn = document.createElement("button");
+    logoutBtn.id = "logoutBtn";
+    logoutBtn.textContent = "로그아웃";
+    logoutBtn.className = "smallBtn";
+    logoutBtn.addEventListener("click", async () => {
+      await signOut(auth);
+    });
+    wrap.appendChild(logoutBtn);
+  }
+
+  let userLabel = document.getElementById("userLabel");
+  if (!userLabel) {
+    userLabel = document.createElement("div");
+    userLabel.id = "userLabel";
+    userLabel.style.fontSize = "12px";
+    userLabel.style.opacity = "0.8";
+    userLabel.style.alignSelf = "center";
+    wrap.appendChild(userLabel);
+  }
+
+  return { loginBtn, logoutBtn, userLabel };
 }
 
-function saveItems(items) {
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(items));
+const authUI = ensureAuthUI();
+
+/* =========================
+   Firestore helpers
+========================= */
+function itemsCol(uid) {
+  return collection(db, "users", uid, "items");
+}
+
+async function fsAddItem(word, sentence) {
+  if (!currentUid) throw new Error("Not signed in");
+  const payload = {
+    word: word.trim(),
+    sentence: sentence.trim(),
+    correctCount: 0,
+    createdAt: serverTimestamp(),
+  };
+  await addDoc(itemsCol(currentUid), payload);
+}
+
+async function fsDeleteItem(id) {
+  if (!currentUid) throw new Error("Not signed in");
+  await deleteDoc(doc(db, "users", currentUid, "items", id));
+}
+
+async function fsClearAll() {
+  if (!currentUid) throw new Error("Not signed in");
+  const snap = await getDocs(itemsCol(currentUid));
+  const batch = writeBatch(db);
+  snap.forEach((d) => batch.delete(d.ref));
+  await batch.commit();
+}
+
+async function fsIncCorrect(id, nextValue) {
+  if (!currentUid) throw new Error("Not signed in");
+  await updateDoc(doc(db, "users", currentUid, "items", id), {
+    correctCount: nextValue,
+  });
+}
+
+function subscribeItems(uid) {
+  if (unsubItems) unsubItems();
+  itemsCache = [];
+
+  // createdAt 기준 정렬 (createdAt이 없거나 아직 serverTimestamp 대기면 id로 fallback)
+  const qy = query(itemsCol(uid), orderBy("createdAt", "desc"));
+  unsubItems = onSnapshot(
+    qy,
+    (snap) => {
+      itemsCache = snap.docs.map((d) => {
+        const data = d.data() || {};
+        return {
+          id: d.id,
+          word: String(data.word ?? "").trim(),
+          sentence: String(data.sentence ?? "").trim(),
+          correctCount: Number.isFinite(data.correctCount) ? data.correctCount : 0,
+          createdAt: data.createdAt ?? null,
+        };
+      });
+
+      // 실시간 반영: 현재 화면이 list/quiz면 바로 갱신
+      try {
+        if (!screens.list.classList.contains("hidden")) renderList();
+        if (!screens.quiz.classList.contains("hidden")) refreshQuizMeta();
+      } catch {}
+    },
+    (err) => {
+      console.error(err);
+      alert("Firestore 구독 에러: " + (err?.message ?? err));
+    }
+  );
+}
+
+function refreshQuizMeta() {
+  const items = itemsCache;
+  quizMeta.textContent = items.length ? `등록 단어: ${items.length}개` : "";
 }
 
 /* =========================
-   Screens
+   Original UI / Screens
 ========================= */
 const screens = {
   home: document.getElementById("home"),
@@ -52,7 +212,7 @@ function showScreen(name) {
 
   if (name === "home") {
     screenTitle.textContent = "내 단어장";
-    screenSub.textContent = "원하는 기능을 선택하세요";
+    screenSub.textContent = currentUid ? "원하는 기능을 선택하세요" : "먼저 Google 로그인을 해주세요";
   } else if (name === "create") {
     screenTitle.textContent = "새로운 단어 생성";
     screenSub.textContent = "단어 → 예문 순서로 입력";
@@ -74,25 +234,26 @@ backBtn.addEventListener("click", () => {
    Home navigation
 ========================= */
 document.getElementById("goCreate").addEventListener("click", () => {
+  if (!currentUid) return alert("먼저 Google 로그인 해주세요.");
   showScreen("create");
   startCreateFlow();
 });
 
 document.getElementById("goList").addEventListener("click", () => {
+  if (!currentUid) return alert("먼저 Google 로그인 해주세요.");
   showScreen("list");
   renderList();
   document.getElementById("search").focus();
 });
 
 document.getElementById("goQuiz").addEventListener("click", () => {
+  if (!currentUid) return alert("먼저 Google 로그인 해주세요.");
   showScreen("quiz");
   startQuiz();
 });
 
 /* =========================
-   CREATE flow
-   Click tile → prompt word → Enter → prompt sentence → Enter saves
-   After save, immediately prompt new word (loop) until user hits back
+   CREATE flow (with typo warning)
 ========================= */
 const createPrompt = document.getElementById("createPrompt");
 const createInput = document.getElementById("createInput");
@@ -100,7 +261,7 @@ const createHelper = document.getElementById("createHelper");
 const createReset = document.getElementById("createReset");
 
 let createState = {
-  step: "word", // "word" | "sentence"
+  step: "word",
   word: "",
 };
 
@@ -116,9 +277,11 @@ function startCreateFlow() {
 
 createReset.addEventListener("click", startCreateFlow);
 
-createInput.addEventListener("keydown", (e) => {
+createInput.addEventListener("keydown", async (e) => {
   if (e.key !== "Enter") return;
   e.preventDefault();
+
+  if (!currentUid) return alert("먼저 Google 로그인 해주세요.");
 
   const val = createInput.value.trim();
   if (!val) return;
@@ -134,38 +297,29 @@ createInput.addEventListener("keydown", (e) => {
     return;
   }
 
-  // sentence step
   if (createState.step === "sentence") {
     const sentenceVal = val;
     const wordVal = createState.word;
 
-    // ✅ 오타 방지: 예문에 단어가 포함되어 있는지 검사 (대소문자 무시)
+    // 오타 방지: 예문에 단어(원형)가 포함되어 있는지 (대소문자 무시)
     const containsWord = sentenceVal.toLowerCase().includes(wordVal.toLowerCase());
-
     if (!containsWord) {
       createHelper.textContent =
         "⚠️ 오타예요! 예문에 단어가 정확히 포함되어 있지 않습니다. (단어 철자/띄어쓰기 확인)";
       createHelper.style.color = "red";
-      return; // 저장하지 않고, 예문 입력 상태 유지
+      return;
     }
 
     createHelper.style.color = "";
 
-    const items = loadItems();
-    const newItem = {
-      id: crypto.randomUUID?.() ?? String(Date.now()),
-      word: wordVal,
-      sentence: sentenceVal,
-      correctCount: 0,
-    };
+    try {
+      await fsAddItem(wordVal, sentenceVal);
+      createHelper.textContent = `저장됨 ✅ (${wordVal}) — 다음 단어를 입력하세요.`;
+    } catch (err) {
+      alert("저장 실패: " + (err?.message ?? err));
+      return;
+    }
 
-    items.unshift(newItem);
-    saveItems(items);
-
-    createHelper.textContent = `저장됨 ✅ (${newItem.word}) — 다음 단어를 입력하세요.`;
-    createHelper.style.color = "";
-
-    // loop to next word
     createState = { step: "word", word: "" };
     createPrompt.textContent = "단어를 입력하세요";
     createInput.value = "";
@@ -176,7 +330,6 @@ createInput.addEventListener("keydown", (e) => {
 
 /* =========================
    LIST screen
-   show word + sentence + correctCount
 ========================= */
 const listWrap = document.getElementById("listWrap");
 const listEmpty = document.getElementById("listEmpty");
@@ -184,7 +337,7 @@ const searchInput = document.getElementById("search");
 const clearAllBtn = document.getElementById("clearAll");
 
 function renderList() {
-  const items = loadItems();
+  const items = itemsCache;
   const q = (searchInput.value || "").trim().toLowerCase();
 
   const filtered = !q
@@ -223,10 +376,12 @@ function renderList() {
     const del = document.createElement("button");
     del.className = "smallBtn";
     del.textContent = "삭제";
-    del.addEventListener("click", () => {
-      const next = loadItems().filter((x) => x.id !== it.id);
-      saveItems(next);
-      renderList();
+    del.addEventListener("click", async () => {
+      try {
+        await fsDeleteItem(it.id);
+      } catch (err) {
+        alert("삭제 실패: " + (err?.message ?? err));
+      }
     });
 
     actions.appendChild(del);
@@ -241,18 +396,20 @@ function renderList() {
 
 searchInput.addEventListener("input", renderList);
 
-clearAllBtn.addEventListener("click", () => {
+clearAllBtn.addEventListener("click", async () => {
+  if (!currentUid) return alert("먼저 Google 로그인 해주세요.");
   const ok = confirm("정말 전체 삭제할까요? (되돌릴 수 없음)");
   if (!ok) return;
-  saveItems([]);
-  renderList();
+
+  try {
+    await fsClearAll();
+  } catch (err) {
+    alert("전체 삭제 실패: " + (err?.message ?? err));
+  }
 });
 
 /* =========================
    QUIZ screen
-   random item → sentence with blank → answer
-   correct → increment correctCount
-   keep looping until user hits back
 ========================= */
 const quizEmpty = document.getElementById("quizEmpty");
 const quizBox = document.getElementById("quizBox");
@@ -264,11 +421,12 @@ const qFeedback = document.getElementById("qFeedback");
 const quizMeta = document.getElementById("quizMeta");
 const qHint = document.getElementById("qHint");
 
-let currentQuiz = null; // { itemId, word, sentence, blankedSentence }
+let currentQuiz = null;
 
 function startQuiz() {
   resetQuizUI();
-  const items = loadItems();
+  const items = itemsCache;
+
   if (items.length === 0) {
     quizEmpty.classList.remove("hidden");
     quizBox.classList.add("hidden");
@@ -277,7 +435,7 @@ function startQuiz() {
   }
   quizEmpty.classList.add("hidden");
   quizBox.classList.remove("hidden");
-  quizMeta.textContent = `등록 단어: ${items.length}개`;
+  refreshQuizMeta();
   nextQuestion();
   setTimeout(() => qAnswer.focus(), 0);
 }
@@ -290,7 +448,7 @@ function resetQuizUI() {
 }
 
 function nextQuestion() {
-  const items = loadItems();
+  const items = itemsCache;
   if (items.length === 0) {
     startQuiz();
     return;
@@ -312,7 +470,7 @@ function nextQuestion() {
   qFeedback.className = "feedback";
 }
 
-function checkAnswer() {
+async function checkAnswer() {
   if (!currentQuiz) return;
   const ans = qAnswer.value.trim();
   if (!ans) return;
@@ -320,12 +478,17 @@ function checkAnswer() {
   const correct = normalize(ans) === normalize(currentQuiz.word);
 
   if (correct) {
-    const items = loadItems();
-    const idx = items.findIndex((x) => x.id === currentQuiz.itemId);
-    if (idx >= 0) {
-      items[idx].correctCount = (items[idx].correctCount || 0) + 1;
-      saveItems(items);
+    // cache에서 현재 correctCount 찾아 +1 해서 Firestore 업데이트
+    const it = itemsCache.find((x) => x.id === currentQuiz.itemId);
+    const nextValue = (it?.correctCount ?? 0) + 1;
+
+    try {
+      await fsIncCorrect(currentQuiz.itemId, nextValue);
+    } catch (err) {
+      alert("정답 카운트 업데이트 실패: " + (err?.message ?? err));
+      return;
     }
+
     qFeedback.textContent = "정답 ✅ 다음 문제로 넘어갑니다.";
     qFeedback.className = "feedback ok";
     setTimeout(() => nextQuestion(), 450);
@@ -360,42 +523,58 @@ function escapeHtml(s) {
     .replaceAll("'", "&#039;");
 }
 
+// 원형/ed/ing 블랭킹 (단순 규칙; 불규칙/겹자음/e-drop 등은 나중에 업그레이드)
 function makeBlank(sentence, word) {
   const base = word.trim();
   if (!base) return sentence;
 
-  const lowerSentence = sentence.toLowerCase();
-  const lowerBase = base.toLowerCase();
-
-  // 1️⃣ 원형 그대로 찾기
+  // 1) base 그대로
   const reBase = new RegExp(`\\b${escapeRegExp(base)}\\b`, "i");
-  if (reBase.test(sentence)) {
-    return sentence.replace(reBase, "____");
-  }
+  if (reBase.test(sentence)) return sentence.replace(reBase, "____");
 
-  // 2️⃣ 과거형 (ed)
+  // 2) base + ed
   const past = base + "ed";
   const rePast = new RegExp(`\\b${escapeRegExp(past)}\\b`, "i");
-  if (rePast.test(sentence)) {
-    return sentence.replace(rePast, "____ed");
-  }
+  if (rePast.test(sentence)) return sentence.replace(rePast, "____ed");
 
-  // 3️⃣ ing형
+  // 3) base + ing
   const ing = base + "ing";
   const reIng = new RegExp(`\\b${escapeRegExp(ing)}\\b`, "i");
-  if (reIng.test(sentence)) {
-    return sentence.replace(reIng, "____ing");
-  }
+  if (reIng.test(sentence)) return sentence.replace(reIng, "____ing");
 
-  // 4️⃣ 아무것도 못 찾으면 원래 문장
-  qHint.textContent =
-    "⚠️ 원형/ed/ing 형태를 찾지 못했어요.";
+  qHint.textContent = "⚠️ 원형/ed/ing 형태를 찾지 못했어요.";
   return sentence;
 }
 
 function escapeRegExp(s) {
   return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
+
+/* =========================
+   Auth state → subscribe user items
+========================= */
+onAuthStateChanged(auth, async (user) => {
+  if (user) {
+    currentUid = user.uid;
+    authUI.userLabel.textContent = user.email ?? "로그인됨";
+    authUI.loginBtn.style.display = "none";
+    authUI.logoutBtn.style.display = "inline-block";
+
+    subscribeItems(currentUid);
+    showScreen("home");
+  } else {
+    currentUid = null;
+    itemsCache = [];
+    if (unsubItems) unsubItems();
+    unsubItems = null;
+
+    authUI.userLabel.textContent = "로그인 필요";
+    authUI.loginBtn.style.display = "inline-block";
+    authUI.logoutBtn.style.display = "none";
+
+    showScreen("home");
+  }
+});
 
 /* =========================
    App init
