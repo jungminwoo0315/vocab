@@ -1,0 +1,115 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>내 단어장</title>
+  <link rel="stylesheet" href="./style.css" />
+</head>
+<body>
+  <div class="app">
+    <!-- Top bar (Back button shown in sub-screens) -->
+    <header class="topbar">
+      <button id="backBtn" class="back hidden" aria-label="뒤로가기">← 나가기</button>
+      <div class="title">
+        <h1 id="screenTitle">내 단어장</h1>
+        <p id="screenSub">원하는 기능을 선택하세요</p>
+      </div>
+      <div class="spacer"></div>
+    </header>
+
+    <!-- HOME -->
+    <main id="home" class="screen">
+      <div class="tiles">
+        <button class="tile left" id="goCreate">
+          <div class="tileTitle">새로운 단어 생성</div>
+          <div class="tileDesc">단어 → 예문 순서로 빠르게 추가</div>
+        </button>
+
+        <button class="tile mid" id="goList">
+          <div class="tileTitle">내가 만든 단어 보기</div>
+          <div class="tileDesc">단어/예문 + 정답 횟수 확인</div>
+        </button>
+
+        <button class="tile right" id="goQuiz">
+          <div class="tileTitle">퀴즈 풀기</div>
+          <div class="tileDesc">예문에서 단어를 블랭크로 맞히기</div>
+        </button>
+      </div>
+
+      <section class="homeInfo">
+        <p class="muted">
+          저장은 이 브라우저에만 됩니다 (localStorage).
+          다른 PC/브라우저로 옮기려면 추후 “내보내기/가져오기” 기능을 붙이면 돼요.
+        </p>
+      </section>
+    </main>
+
+    <!-- CREATE -->
+    <main id="create" class="screen hidden">
+      <section class="card">
+        <h2>새로운 단어 생성</h2>
+        <p class="muted">Enter로 다음 단계로 넘어가요. (단어 → 예문)</p>
+
+        <div class="stepBox">
+          <div class="stepLabel" id="createPrompt">단어를 입력하세요</div>
+          <input id="createInput" class="bigInput" placeholder="예: resilient" autocomplete="off" />
+          <div class="helper" id="createHelper"></div>
+        </div>
+
+        <div class="row">
+          <button id="createReset" class="ghost">입력 초기화</button>
+        </div>
+      </section>
+    </main>
+
+    <!-- LIST -->
+    <main id="list" class="screen hidden">
+      <section class="card">
+        <div class="row between">
+          <h2>내가 만든 단어</h2>
+          <div class="row">
+            <input id="search" class="search" placeholder="검색 (단어/예문)..." />
+            <button id="clearAll" class="ghost danger">전체 삭제</button>
+          </div>
+        </div>
+
+        <div id="listEmpty" class="muted empty hidden">아직 저장된 단어가 없어요.</div>
+        <div id="listWrap" class="list"></div>
+      </section>
+    </main>
+
+    <!-- QUIZ -->
+    <main id="quiz" class="screen hidden">
+      <section class="card">
+        <div class="row between">
+          <h2>퀴즈 풀기</h2>
+          <div class="muted" id="quizMeta"></div>
+        </div>
+
+        <div id="quizEmpty" class="muted empty hidden">
+          단어가 없어서 퀴즈를 시작할 수 없어요. 먼저 단어를 만들어 주세요.
+        </div>
+
+        <div id="quizBox" class="quizBox hidden">
+          <div class="qWordHint muted" id="qHint"></div>
+          <div class="qSentence" id="qSentence"></div>
+
+          <div class="row">
+            <input id="qAnswer" class="bigInput" placeholder="정답 단어 입력 후 Enter" autocomplete="off" />
+            <button id="qCheck">채점</button>
+          </div>
+
+          <div class="feedback" id="qFeedback"></div>
+
+          <div class="row">
+            <button id="qSkip" class="ghost">다음 문제(스킵)</button>
+          </div>
+        </div>
+      </section>
+    </main>
+  </div>
+
+  <script src="./app.js"></script>
+</body>
+</html>
