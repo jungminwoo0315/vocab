@@ -46,12 +46,26 @@ let itemsCache = []; // { id, word, sentence, correctCount, createdAt }
 let unsubItems = null;
 
 /* =========================
+   Edit mode state
+========================= */
+let createState = {
+  step: "word",
+  word: "",
+};
+
+let editMode = {
+  isEditing: false,
+  itemId: null,
+  originalCorrectCount: 0,
+  originalCreatedAt: null,
+};
+
+/* =========================
    Small UI: auth buttons (injected)
 ========================= */
 function ensureAuthUI() {
-  // header에 버튼을 끼워넣기 (기존 HTML 수정 안 해도 됨)
   const headerRight =
-    document.querySelector(".topRight") || // 혹시 있으면 사용
+    document.querySelector(".topRight") ||
     document.getElementById("headerRight") ||
     document.querySelector("header") ||
     document.body;
@@ -66,6 +80,8 @@ function ensureAuthUI() {
     wrap.style.zIndex = "9999";
     wrap.style.display = "flex";
     wrap.style.gap = "8px";
+    wrap.style.flexWrap = "wrap";
+    wrap.style.alignItems = "center";
     headerRight.appendChild(wrap);
   }
 
@@ -150,11 +166,18 @@ async function fsIncCorrect(id, nextValue) {
   });
 }
 
+async function fsUpdateItem(id, word, sentence) {
+  if (!currentUid) throw new Error("Not signed in");
+  await updateDoc(doc(db, "users", currentUid, "items", id), {
+    word: word.trim(),
+    sentence: sentence.trim(),
+  });
+}
+
 function subscribeItems(uid) {
   if (unsubItems) unsubItems();
   itemsCache = [];
 
-  // createdAt 기준 정렬 (createdAt이 없거나 아직 serverTimestamp 대기면 id로 fallback)
   const qy = query(itemsCol(uid), orderBy("createdAt", "desc"));
   unsubItems = onSnapshot(
     qy,
@@ -170,9 +193,9 @@ function subscribeItems(uid) {
         };
       });
 
-      // 실시간 반영: 현재 화면이 list/quiz면 바로 갱신
       try {
         if (!screens.list.classList.contains("hidden")) renderList();
+        if (!screens.archive.classList.contains("hidden")) renderArchive();
         if (!screens.quiz.classList.contains("hidden")) refreshQuizMeta();
       } catch {}
     },
@@ -183,11 +206,6 @@ function subscribeItems(uid) {
   );
 }
 
-function refreshQuizMeta() {
-  const items = itemsCache;
-  quizMeta.textContent = items.length ? `등록 단어: ${items.length}개` : "";
-}
-
 /* =========================
    Original UI / Screens
 ========================= */
@@ -195,12 +213,14 @@ const screens = {
   home: document.getElementById("home"),
   create: document.getElementById("create"),
   list: document.getElementById("list"),
+  archive: document.getElementById("archive"),
   quiz: document.getElementById("quiz"),
 };
 
 const backBtn = document.getElementById("backBtn");
 const screenTitle = document.getElementById("screenTitle");
 const screenSub = document.getElementById("screenSub");
+const createTitle = document.getElementById("createTitle");
 
 function showScreen(name) {
   Object.entries(screens).forEach(([k, el]) => {
@@ -214,11 +234,15 @@ function showScreen(name) {
     screenTitle.textContent = "내 단어장";
     screenSub.textContent = currentUid ? "원하는 기능을 선택하세요" : "먼저 Google 로그인을 해주세요";
   } else if (name === "create") {
-    screenTitle.textContent = "새로운 단어 생성";
-    screenSub.textContent = "단어 → 예문 순서로 입력";
+    screenTitle.textContent = editMode.isEditing ? "단어 수정" : "새로운 단어 생성";
+    screenSub.textContent = editMode.isEditing ? "단어 → 예문 순서로 수정" : "단어 → 예문 순서로 입력";
+    createTitle.textContent = editMode.isEditing ? "단어 수정" : "새로운 단어 생성";
   } else if (name === "list") {
     screenTitle.textContent = "내가 만든 단어 보기";
     screenSub.textContent = "단어/예문 + 정답 횟수";
+  } else if (name === "archive") {
+    screenTitle.textContent = "아카이브";
+    screenSub.textContent = "정답 100번 이상인 단어";
   } else if (name === "quiz") {
     screenTitle.textContent = "퀴즈 풀기";
     screenSub.textContent = "예문에서 단어를 블랭크로 맞히기";
@@ -227,6 +251,7 @@ function showScreen(name) {
 
 backBtn.addEventListener("click", () => {
   resetQuizUI();
+  exitEditMode();
   showScreen("home");
 });
 
@@ -235,12 +260,15 @@ backBtn.addEventListener("click", () => {
 ========================= */
 document.getElementById("goCreate").addEventListener("click", () => {
   if (!currentUid) return alert("먼저 Google 로그인 해주세요.");
+  exitEditMode();
   showScreen("create");
   startCreateFlow();
 });
 
 document.getElementById("goList").addEventListener("click", () => {
   if (!currentUid) return alert("먼저 Google 로그인 해주세요.");
+  resetQuizUI();
+  exitEditMode();
   showScreen("list");
   renderList();
   document.getElementById("search").focus();
@@ -248,34 +276,80 @@ document.getElementById("goList").addEventListener("click", () => {
 
 document.getElementById("goQuiz").addEventListener("click", () => {
   if (!currentUid) return alert("먼저 Google 로그인 해주세요.");
+  resetQuizUI();
+  exitEditMode();
   showScreen("quiz");
   startQuiz();
 });
 
 /* =========================
-   CREATE flow (with typo warning)
+   CREATE / EDIT flow
 ========================= */
 const createPrompt = document.getElementById("createPrompt");
 const createInput = document.getElementById("createInput");
 const createHelper = document.getElementById("createHelper");
 const createReset = document.getElementById("createReset");
 
-let createState = {
-  step: "word",
-  word: "",
-};
-
 function startCreateFlow() {
   createState = { step: "word", word: "" };
   createPrompt.textContent = "단어를 입력하세요";
   createInput.value = "";
   createInput.placeholder = "예: resilient";
-  createHelper.textContent = "단어를 입력하고 Enter를 누르세요.";
+  createHelper.textContent = editMode.isEditing
+    ? "수정할 단어를 입력하고 Enter를 누르세요."
+    : "단어를 입력하고 Enter를 누르세요.";
   createHelper.style.color = "";
+  showScreen("create");
   setTimeout(() => createInput.focus(), 0);
 }
 
-createReset.addEventListener("click", startCreateFlow);
+function enterEditMode(item) {
+  editMode = {
+    isEditing: true,
+    itemId: item.id,
+    originalCorrectCount: item.correctCount ?? 0,
+    originalCreatedAt: item.createdAt ?? null,
+  };
+
+  createState = {
+    step: "word",
+    word: "",
+  };
+
+  showScreen("create");
+  createPrompt.textContent = "수정할 단어를 입력하세요";
+  createInput.value = item.word;
+  createInput.placeholder = "예: resilient";
+  createHelper.textContent = "단어를 수정한 뒤 Enter를 누르세요.";
+  createHelper.style.color = "";
+  createTitle.textContent = "단어 수정";
+  setTimeout(() => createInput.focus(), 0);
+}
+
+function exitEditMode() {
+  editMode = {
+    isEditing: false,
+    itemId: null,
+    originalCorrectCount: 0,
+    originalCreatedAt: null,
+  };
+  createTitle.textContent = "새로운 단어 생성";
+}
+
+createReset.addEventListener("click", () => {
+  if (editMode.isEditing) {
+    createState = { step: "word", word: "" };
+    createPrompt.textContent = "수정할 단어를 입력하세요";
+    createInput.value = "";
+    createInput.placeholder = "예: resilient";
+    createHelper.textContent = "수정할 단어를 입력하고 Enter를 누르세요.";
+    createHelper.style.color = "";
+    createInput.focus();
+    return;
+  }
+
+  startCreateFlow();
+});
 
 createInput.addEventListener("keydown", async (e) => {
   if (e.key !== "Enter") return;
@@ -292,7 +366,9 @@ createInput.addEventListener("keydown", async (e) => {
     createPrompt.textContent = `예문을 입력하세요 (단어: ${createState.word})`;
     createInput.value = "";
     createInput.placeholder = "예: She is resilient even under pressure.";
-    createHelper.textContent = "예문을 입력하고 Enter를 누르면 저장됩니다.";
+    createHelper.textContent = editMode.isEditing
+      ? "예문을 입력하고 Enter를 누르면 수정됩니다."
+      : "예문을 입력하고 Enter를 누르면 저장됩니다.";
     createHelper.style.color = "";
     return;
   }
@@ -301,8 +377,7 @@ createInput.addEventListener("keydown", async (e) => {
     const sentenceVal = val;
     const wordVal = createState.word;
 
-    // 오타 방지: 예문에 단어(원형)가 포함되어 있는지 (대소문자 무시)
-    const containsWord = sentenceVal.toLowerCase().includes(wordVal.toLowerCase());
+    const containsWord = sentenceIncludesWord(sentenceVal, wordVal);
     if (!containsWord) {
       createHelper.textContent =
         "⚠️ 오타예요! 예문에 단어가 정확히 포함되어 있지 않습니다. (단어 철자/띄어쓰기 확인)";
@@ -313,10 +388,16 @@ createInput.addEventListener("keydown", async (e) => {
     createHelper.style.color = "";
 
     try {
-      await fsAddItem(wordVal, sentenceVal);
-      createHelper.textContent = `저장됨 ✅ (${wordVal}) — 다음 단어를 입력하세요.`;
+      if (editMode.isEditing && editMode.itemId) {
+        await fsUpdateItem(editMode.itemId, wordVal, sentenceVal);
+        createHelper.textContent = `수정됨 ✅ (${wordVal})`;
+        exitEditMode();
+      } else {
+        await fsAddItem(wordVal, sentenceVal);
+        createHelper.textContent = `저장됨 ✅ (${wordVal}) — 다음 단어를 입력하세요.`;
+      }
     } catch (err) {
-      alert("저장 실패: " + (err?.message ?? err));
+      alert((editMode.isEditing ? "수정 실패: " : "저장 실패: ") + (err?.message ?? err));
       return;
     }
 
@@ -324,77 +405,44 @@ createInput.addEventListener("keydown", async (e) => {
     createPrompt.textContent = "단어를 입력하세요";
     createInput.value = "";
     createInput.placeholder = "예: resilient";
+
+    if (editMode.isEditing) {
+      exitEditMode();
+      showScreen("list");
+      renderList();
+      return;
+    }
+
     return;
   }
 });
 
 /* =========================
-   LIST screen
+   LIST / ARCHIVE
 ========================= */
 const listWrap = document.getElementById("listWrap");
 const listEmpty = document.getElementById("listEmpty");
 const searchInput = document.getElementById("search");
 const clearAllBtn = document.getElementById("clearAll");
+const listCount = document.getElementById("listCount");
+const sortSelect = document.getElementById("sortSelect");
+const goArchiveBtn = document.getElementById("goArchive");
 
-function renderList() {
-  const items = itemsCache;
-  const q = (searchInput.value || "").trim().toLowerCase();
+const archiveWrap = document.getElementById("archiveWrap");
+const archiveEmpty = document.getElementById("archiveEmpty");
+const archiveSearchInput = document.getElementById("archiveSearch");
+const archiveCount = document.getElementById("archiveCount");
+const archiveSortSelect = document.getElementById("archiveSortSelect");
 
-  const filtered = !q
-    ? items
-    : items.filter(
-        (it) => it.word.toLowerCase().includes(q) || it.sentence.toLowerCase().includes(q)
-      );
-
-  listEmpty.classList.toggle("hidden", filtered.length !== 0);
-  listWrap.innerHTML = "";
-
-  for (const it of filtered) {
-    const el = document.createElement("div");
-    el.className = "item";
-
-    const top = document.createElement("div");
-    top.className = "itemTop";
-
-    const left = document.createElement("div");
-    left.innerHTML = `<span class="itemWord">${escapeHtml(it.word)}</span>`;
-
-    const right = document.createElement("div");
-    right.className = "itemCount";
-    right.textContent = `정답: ${it.correctCount}`;
-
-    top.appendChild(left);
-    top.appendChild(right);
-
-    const sentence = document.createElement("div");
-    sentence.className = "itemSentence";
-    sentence.textContent = it.sentence;
-
-    const actions = document.createElement("div");
-    actions.className = "itemActions";
-
-    const del = document.createElement("button");
-    del.className = "smallBtn";
-    del.textContent = "삭제";
-    del.addEventListener("click", async () => {
-      try {
-        await fsDeleteItem(it.id);
-      } catch (err) {
-        alert("삭제 실패: " + (err?.message ?? err));
-      }
-    });
-
-    actions.appendChild(del);
-
-    el.appendChild(top);
-    el.appendChild(sentence);
-    el.appendChild(actions);
-
-    listWrap.appendChild(el);
-  }
-}
+goArchiveBtn.addEventListener("click", () => {
+  showScreen("archive");
+  renderArchive();
+});
 
 searchInput.addEventListener("input", renderList);
+sortSelect.addEventListener("change", renderList);
+archiveSearchInput.addEventListener("input", renderArchive);
+archiveSortSelect.addEventListener("change", renderArchive);
 
 clearAllBtn.addEventListener("click", async () => {
   if (!currentUid) return alert("먼저 Google 로그인 해주세요.");
@@ -407,6 +455,138 @@ clearAllBtn.addEventListener("click", async () => {
     alert("전체 삭제 실패: " + (err?.message ?? err));
   }
 });
+
+function getSortedItems(items, sortValue) {
+  const copied = [...items];
+
+  if (sortValue === "alphaAsc") {
+    copied.sort((a, b) => a.word.localeCompare(b.word, "en", { sensitivity: "base" }));
+    return copied;
+  }
+
+  if (sortValue === "correctDesc") {
+    copied.sort((a, b) => {
+      if (b.correctCount !== a.correctCount) return b.correctCount - a.correctCount;
+      return a.word.localeCompare(b.word, "en", { sensitivity: "base" });
+    });
+    return copied;
+  }
+
+  copied.sort((a, b) => {
+    const aSec = getCreatedAtSeconds(a.createdAt);
+    const bSec = getCreatedAtSeconds(b.createdAt);
+    return bSec - aSec;
+  });
+  return copied;
+}
+
+function getCreatedAtSeconds(createdAt) {
+  if (!createdAt) return 0;
+  if (typeof createdAt.seconds === "number") return createdAt.seconds;
+  if (typeof createdAt.toMillis === "function") return Math.floor(createdAt.toMillis() / 1000);
+  return 0;
+}
+
+function renderList() {
+  const baseItems = itemsCache.filter((it) => it.correctCount < 100);
+  const q = (searchInput.value || "").trim().toLowerCase();
+  const sorted = getSortedItems(baseItems, sortSelect.value);
+
+  const filtered = !q
+    ? sorted
+    : sorted.filter(
+        (it) =>
+          it.word.toLowerCase().includes(q) ||
+          it.sentence.toLowerCase().includes(q)
+      );
+
+  listCount.textContent = `총 ${baseItems.length}개`;
+  listEmpty.classList.toggle("hidden", filtered.length !== 0);
+  listWrap.innerHTML = "";
+
+  for (const it of filtered) {
+    const el = buildItemCard(it);
+    listWrap.appendChild(el);
+  }
+}
+
+function renderArchive() {
+  const baseItems = itemsCache.filter((it) => it.correctCount >= 100);
+  const q = (archiveSearchInput.value || "").trim().toLowerCase();
+  const sorted = getSortedItems(baseItems, archiveSortSelect.value);
+
+  const filtered = !q
+    ? sorted
+    : sorted.filter(
+        (it) =>
+          it.word.toLowerCase().includes(q) ||
+          it.sentence.toLowerCase().includes(q)
+      );
+
+  archiveCount.textContent = `총 ${baseItems.length}개`;
+  archiveEmpty.classList.toggle("hidden", filtered.length !== 0);
+  archiveWrap.innerHTML = "";
+
+  for (const it of filtered) {
+    const el = buildItemCard(it);
+    archiveWrap.appendChild(el);
+  }
+}
+
+function buildItemCard(it) {
+  const el = document.createElement("div");
+  el.className = "item";
+
+  const top = document.createElement("div");
+  top.className = "itemTop";
+
+  const left = document.createElement("div");
+  left.innerHTML = `<span class="itemWord">${escapeHtml(it.word)}</span>`;
+
+  const right = document.createElement("div");
+  right.className = "itemCount";
+  right.textContent = `정답: ${it.correctCount}`;
+
+  top.appendChild(left);
+  top.appendChild(right);
+
+  const sentence = document.createElement("div");
+  sentence.className = "itemSentence";
+  sentence.textContent = it.sentence;
+
+  const actions = document.createElement("div");
+  actions.className = "itemActions";
+
+  const editBtn = document.createElement("button");
+  editBtn.className = "smallBtn";
+  editBtn.textContent = "수정";
+  editBtn.addEventListener("click", () => {
+    enterEditMode(it);
+  });
+
+  const delBtn = document.createElement("button");
+  delBtn.className = "smallBtn dangerText";
+  delBtn.textContent = "삭제";
+  delBtn.addEventListener("click", async () => {
+    const ok = confirm(`"${it.word}" 를 정말로 삭제할 거예요?`);
+    if (!ok) return;
+
+    try {
+      await fsDeleteItem(it.id);
+    } catch (err) {
+      alert("삭제 실패: " + (err?.message ?? err));
+    }
+  });
+
+  actions.appendChild(editBtn);
+  actions.appendChild(delBtn);
+
+  el.appendChild(top);
+  el.appendChild(sentence);
+  el.appendChild(actions);
+
+  return el;
+}
 
 /* =========================
    QUIZ screen
@@ -423,9 +603,18 @@ const qHint = document.getElementById("qHint");
 
 let currentQuiz = null;
 
+function getQuizPool() {
+  return itemsCache.filter((it) => it.correctCount < 100);
+}
+
+function refreshQuizMeta() {
+  const items = getQuizPool();
+  quizMeta.textContent = items.length ? `퀴즈 대상 단어: ${items.length}개` : "";
+}
+
 function startQuiz() {
   resetQuizUI();
-  const items = itemsCache;
+  const items = getQuizPool();
 
   if (items.length === 0) {
     quizEmpty.classList.remove("hidden");
@@ -433,6 +622,7 @@ function startQuiz() {
     quizMeta.textContent = "";
     return;
   }
+
   quizEmpty.classList.add("hidden");
   quizBox.classList.remove("hidden");
   refreshQuizMeta();
@@ -448,11 +638,13 @@ function resetQuizUI() {
 }
 
 function nextQuestion() {
-  const items = itemsCache;
+  const items = getQuizPool();
+
   if (items.length === 0) {
     startQuiz();
     return;
   }
+
   const pick = items[Math.floor(Math.random() * items.length)];
   const blanked = makeBlank(pick.sentence, pick.word);
 
@@ -478,7 +670,6 @@ async function checkAnswer() {
   const correct = normalize(ans) === normalize(currentQuiz.word);
 
   if (correct) {
-    // cache에서 현재 correctCount 찾아 +1 해서 Firestore 업데이트
     const it = itemsCache.find((x) => x.id === currentQuiz.itemId);
     const nextValue = (it?.correctCount ?? 0) + 1;
 
@@ -489,7 +680,12 @@ async function checkAnswer() {
       return;
     }
 
-    qFeedback.textContent = "정답 ✅ 다음 문제로 넘어갑니다.";
+    if (nextValue >= 100) {
+      qFeedback.textContent = "정답 ✅ 이 단어는 아카이브로 이동합니다.";
+    } else {
+      qFeedback.textContent = "정답 ✅ 다음 문제로 넘어갑니다.";
+    }
+
     qFeedback.className = "feedback ok";
     setTimeout(() => nextQuestion(), 450);
   } else {
@@ -523,31 +719,41 @@ function escapeHtml(s) {
     .replaceAll("'", "&#039;");
 }
 
-// 원형/ed/ing 블랭킹 (단순 규칙; 불규칙/겹자음/e-drop 등은 나중에 업그레이드)
+function escapeRegExp(s) {
+  return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+function sentenceIncludesWord(sentence, word) {
+  const normalizedWord = word.trim();
+  if (!normalizedWord) return false;
+
+  const patterns = [
+    new RegExp(`\\b${escapeRegExp(normalizedWord)}\\b`, "i"),
+    new RegExp(`\\b${escapeRegExp(normalizedWord + "ed")}\\b`, "i"),
+    new RegExp(`\\b${escapeRegExp(normalizedWord + "ing")}\\b`, "i"),
+  ];
+
+  return patterns.some((re) => re.test(sentence));
+}
+
+// 원형/ed/ing 블랭킹
 function makeBlank(sentence, word) {
   const base = word.trim();
   if (!base) return sentence;
 
-  // 1) base 그대로
   const reBase = new RegExp(`\\b${escapeRegExp(base)}\\b`, "i");
   if (reBase.test(sentence)) return sentence.replace(reBase, "____");
 
-  // 2) base + ed
   const past = base + "ed";
   const rePast = new RegExp(`\\b${escapeRegExp(past)}\\b`, "i");
   if (rePast.test(sentence)) return sentence.replace(rePast, "____ed");
 
-  // 3) base + ing
   const ing = base + "ing";
   const reIng = new RegExp(`\\b${escapeRegExp(ing)}\\b`, "i");
   if (reIng.test(sentence)) return sentence.replace(reIng, "____ing");
 
   qHint.textContent = "⚠️ 원형/ed/ing 형태를 찾지 못했어요.";
   return sentence;
-}
-
-function escapeRegExp(s) {
-  return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
 /* =========================
@@ -572,6 +778,7 @@ onAuthStateChanged(auth, async (user) => {
     authUI.loginBtn.style.display = "inline-block";
     authUI.logoutBtn.style.display = "none";
 
+    exitEditMode();
     showScreen("home");
   }
 });
