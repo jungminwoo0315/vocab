@@ -8,7 +8,6 @@
 </head>
 <body>
   <div class="app">
-    <!-- Top bar (Back button shown in sub-screens) -->
     <header class="topbar">
       <button id="backBtn" class="back hidden" aria-label="뒤로가기">← 나가기</button>
       <div class="title">
@@ -39,16 +38,15 @@
 
       <section class="homeInfo">
         <p class="muted">
-          저장은 이 브라우저에만 됩니다 (localStorage).
-          다른 PC/브라우저로 옮기려면 추후 “내보내기/가져오기” 기능을 붙이면 돼요.
+          Google 로그인 후 내 단어장이 클라우드에 저장됩니다.
         </p>
       </section>
     </main>
 
-    <!-- CREATE -->
+    <!-- CREATE / EDIT -->
     <main id="create" class="screen hidden">
       <section class="card">
-        <h2>새로운 단어 생성</h2>
+        <h2 id="createTitle">새로운 단어 생성</h2>
         <p class="muted">Enter로 다음 단계로 넘어가요. (단어 → 예문)</p>
 
         <div class="stepBox">
@@ -66,16 +64,53 @@
     <!-- LIST -->
     <main id="list" class="screen hidden">
       <section class="card">
-        <div class="row between">
-          <h2>내가 만든 단어</h2>
-          <div class="row">
+        <div class="row between listHeaderTop">
+          <div>
+            <h2>내가 만든 단어</h2>
+            <div class="muted" id="listCount">총 0개</div>
+          </div>
+
+          <div class="row listControls">
             <input id="search" class="search" placeholder="검색 (단어/예문)..." />
+
+            <select id="sortSelect" class="selectBox">
+              <option value="createdDesc">단어 등록 순</option>
+              <option value="alphaAsc">알파벳 순</option>
+              <option value="correctDesc">정답 맞춘 개수 순</option>
+            </select>
+
+            <button id="goArchive" class="ghost">아카이브</button>
             <button id="clearAll" class="ghost danger">전체 삭제</button>
           </div>
         </div>
 
         <div id="listEmpty" class="muted empty hidden">아직 저장된 단어가 없어요.</div>
         <div id="listWrap" class="list"></div>
+      </section>
+    </main>
+
+    <!-- ARCHIVE -->
+    <main id="archive" class="screen hidden">
+      <section class="card">
+        <div class="row between listHeaderTop">
+          <div>
+            <h2>아카이브</h2>
+            <div class="muted" id="archiveCount">총 0개</div>
+          </div>
+
+          <div class="row listControls">
+            <input id="archiveSearch" class="search" placeholder="검색 (단어/예문)..." />
+
+            <select id="archiveSortSelect" class="selectBox">
+              <option value="createdDesc">단어 등록 순</option>
+              <option value="alphaAsc">알파벳 순</option>
+              <option value="correctDesc">정답 맞춘 개수 순</option>
+            </select>
+          </div>
+        </div>
+
+        <div id="archiveEmpty" class="muted empty hidden">아직 아카이브된 단어가 없어요.</div>
+        <div id="archiveWrap" class="list"></div>
       </section>
     </main>
 
@@ -88,7 +123,7 @@
         </div>
 
         <div id="quizEmpty" class="muted empty hidden">
-          단어가 없어서 퀴즈를 시작할 수 없어요. 먼저 단어를 만들어 주세요.
+          퀴즈에 나올 단어가 없어요. 먼저 단어를 만들거나, 아직 100번 미만으로 맞힌 단어가 있어야 합니다.
         </div>
 
         <div id="quizBox" class="quizBox hidden">
@@ -112,5 +147,4 @@
 
   <script type="module" src="./app.js"></script>
 </body>
-
 </html>
