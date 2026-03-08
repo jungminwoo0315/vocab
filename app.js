@@ -46,7 +46,7 @@ let itemsCache = []; // { id, word, sentence, correctCount, createdAt }
 let unsubItems = null;
 
 /* =========================
-   Edit mode state
+   Create / Edit state
 ========================= */
 let createState = {
   step: "word",
@@ -58,6 +58,8 @@ let editMode = {
   itemId: null,
   originalCorrectCount: 0,
   originalCreatedAt: null,
+  originalWord: "",
+  originalSentence: "",
 };
 
 /* =========================
@@ -309,6 +311,8 @@ function enterEditMode(item) {
     itemId: item.id,
     originalCorrectCount: item.correctCount ?? 0,
     originalCreatedAt: item.createdAt ?? null,
+    originalWord: item.word ?? "",
+    originalSentence: item.sentence ?? "",
   };
 
   createState = {
@@ -332,6 +336,8 @@ function exitEditMode() {
     itemId: null,
     originalCorrectCount: 0,
     originalCreatedAt: null,
+    originalWord: "",
+    originalSentence: "",
   };
   createTitle.textContent = "새로운 단어 생성";
 }
@@ -340,7 +346,7 @@ createReset.addEventListener("click", () => {
   if (editMode.isEditing) {
     createState = { step: "word", word: "" };
     createPrompt.textContent = "수정할 단어를 입력하세요";
-    createInput.value = "";
+    createInput.value = editMode.originalWord || "";
     createInput.placeholder = "예: resilient";
     createHelper.textContent = "수정할 단어를 입력하고 Enter를 누르세요.";
     createHelper.style.color = "";
@@ -364,10 +370,16 @@ createInput.addEventListener("keydown", async (e) => {
     createState.word = val;
     createState.step = "sentence";
     createPrompt.textContent = `예문을 입력하세요 (단어: ${createState.word})`;
-    createInput.value = "";
+
+    if (editMode.isEditing) {
+      createInput.value = editMode.originalSentence || "";
+    } else {
+      createInput.value = "";
+    }
+
     createInput.placeholder = "예: She is resilient even under pressure.";
     createHelper.textContent = editMode.isEditing
-      ? "예문을 입력하고 Enter를 누르면 수정됩니다."
+      ? "예문이 기존 값으로 채워져 있어요. 수정 후 Enter를 누르세요."
       : "예문을 입력하고 Enter를 누르면 저장됩니다.";
     createHelper.style.color = "";
     return;
@@ -391,7 +403,6 @@ createInput.addEventListener("keydown", async (e) => {
       if (editMode.isEditing && editMode.itemId) {
         await fsUpdateItem(editMode.itemId, wordVal, sentenceVal);
         createHelper.textContent = `수정됨 ✅ (${wordVal})`;
-        exitEditMode();
       } else {
         await fsAddItem(wordVal, sentenceVal);
         createHelper.textContent = `저장됨 ✅ (${wordVal}) — 다음 단어를 입력하세요.`;
@@ -401,12 +412,14 @@ createInput.addEventListener("keydown", async (e) => {
       return;
     }
 
+    const wasEditing = editMode.isEditing;
+
     createState = { step: "word", word: "" };
     createPrompt.textContent = "단어를 입력하세요";
     createInput.value = "";
     createInput.placeholder = "예: resilient";
 
-    if (editMode.isEditing) {
+    if (wasEditing) {
       exitEditMode();
       showScreen("list");
       renderList();
