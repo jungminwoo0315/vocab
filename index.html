@@ -12,17 +12,43 @@
       <button id="backBtn" class="back hidden" aria-label="뒤로가기">← 나가기</button>
       <div class="title">
         <h1 id="screenTitle">내 단어장</h1>
-        <p id="screenSub">원하는 기능을 선택하세요</p>
+        <p id="screenSub">원하는 언어를 선택하세요</p>
       </div>
       <div class="spacer"></div>
     </header>
 
-    <!-- HOME -->
-    <main id="home" class="screen">
+    <!-- LANGUAGE SELECT -->
+    <main id="languageSelect" class="screen">
+      <div class="tiles langTiles">
+        <button class="tile left" id="goEnglish">
+          <div class="tileTitle">영어</div>
+          <div class="tileDesc">기존 영단어장 그대로 사용</div>
+        </button>
+
+        <button class="tile mid" id="goChinese">
+          <div class="tileTitle">중국어</div>
+          <div class="tileDesc">한자 → 병음 → 예문 순서로 저장</div>
+        </button>
+
+        <button class="tile right" id="goJapanese">
+          <div class="tileTitle">일본어</div>
+          <div class="tileDesc">단어 → 가나 → 예문 순서로 저장</div>
+        </button>
+      </div>
+
+      <section class="homeInfo">
+        <p class="muted">
+          Google 로그인 후 언어별 단어장이 클라우드에 저장됩니다.
+        </p>
+      </section>
+    </main>
+
+    <!-- LANGUAGE HOME -->
+    <main id="home" class="screen hidden">
       <div class="tiles">
         <button class="tile left" id="goCreate">
           <div class="tileTitle">새로운 단어 생성</div>
-          <div class="tileDesc">단어 → 예문 순서로 빠르게 추가</div>
+          <div class="tileDesc">선택한 언어의 단어를 빠르게 추가</div>
         </button>
 
         <button class="tile mid" id="goList">
@@ -32,13 +58,13 @@
 
         <button class="tile right" id="goQuiz">
           <div class="tileTitle">퀴즈 풀기</div>
-          <div class="tileDesc">예문에서 단어를 블랭크로 맞히기</div>
+          <div class="tileDesc">예문에서 블랭크를 보고 맞히기</div>
         </button>
       </div>
 
       <section class="homeInfo">
-        <p class="muted">
-          Google 로그인 후 내 단어장이 클라우드에 저장됩니다.
+        <p class="muted" id="languageHomeInfo">
+          현재 선택된 언어의 단어장을 사용합니다.
         </p>
       </section>
     </main>
@@ -47,11 +73,11 @@
     <main id="create" class="screen hidden">
       <section class="card">
         <h2 id="createTitle">새로운 단어 생성</h2>
-        <p class="muted">Enter로 다음 단계로 넘어가요. (단어 → 예문)</p>
+        <p class="muted" id="createTopGuide">Enter로 다음 단계로 넘어가요.</p>
 
         <div class="stepBox">
           <div class="stepLabel" id="createPrompt">단어를 입력하세요</div>
-          <input id="createInput" class="bigInput" placeholder="예: resilient" autocomplete="off" />
+          <input id="createInput" class="bigInput" placeholder="" autocomplete="off" />
           <div class="helper" id="createHelper"></div>
         </div>
 
@@ -66,16 +92,16 @@
       <section class="card">
         <div class="row between listHeaderTop">
           <div>
-            <h2>내가 만든 단어</h2>
+            <h2 id="listTitle">내가 만든 단어</h2>
             <div class="muted" id="listCount">총 0개</div>
           </div>
 
           <div class="row listControls">
-            <input id="search" class="search" placeholder="검색 (단어/예문)..." />
+            <input id="search" class="search" placeholder="검색..." />
 
             <select id="sortSelect" class="selectBox">
               <option value="createdDesc">단어 등록 순</option>
-              <option value="alphaAsc">알파벳 순</option>
+              <option value="alphaAsc">단어 순</option>
               <option value="correctDesc">정답 맞춘 개수 순</option>
             </select>
 
@@ -94,16 +120,16 @@
       <section class="card">
         <div class="row between listHeaderTop">
           <div>
-            <h2>아카이브</h2>
+            <h2 id="archiveTitle">아카이브</h2>
             <div class="muted" id="archiveCount">총 0개</div>
           </div>
 
           <div class="row listControls">
-            <input id="archiveSearch" class="search" placeholder="검색 (단어/예문)..." />
+            <input id="archiveSearch" class="search" placeholder="검색..." />
 
             <select id="archiveSortSelect" class="selectBox">
               <option value="createdDesc">단어 등록 순</option>
-              <option value="alphaAsc">알파벳 순</option>
+              <option value="alphaAsc">단어 순</option>
               <option value="correctDesc">정답 맞춘 개수 순</option>
             </select>
           </div>
@@ -118,7 +144,7 @@
     <main id="quiz" class="screen hidden">
       <section class="card">
         <div class="row between">
-          <h2>퀴즈 풀기</h2>
+          <h2 id="quizTitle">퀴즈 풀기</h2>
           <div class="muted" id="quizMeta"></div>
         </div>
 
@@ -131,11 +157,12 @@
           <div class="qSentence" id="qSentence"></div>
 
           <div class="row">
-            <input id="qAnswer" class="bigInput" placeholder="정답 단어 입력 후 Enter" autocomplete="off" />
+            <input id="qAnswer" class="bigInput" placeholder="정답 입력 후 Enter" autocomplete="off" />
             <button id="qCheck">채점</button>
           </div>
 
           <div class="feedback" id="qFeedback"></div>
+          <div class="quizReveal hidden" id="qReveal"></div>
 
           <div class="row">
             <button id="qSkip" class="ghost">다음 문제(스킵)</button>
