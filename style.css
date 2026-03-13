@@ -59,6 +59,10 @@ body {
   gap: 14px;
 }
 
+.langTiles .tile {
+  min-height: 170px;
+}
+
 .tile {
   border: 1px solid #e7e7ef;
   background: #fff;
@@ -76,7 +80,7 @@ body {
 }
 
 .tileTitle {
-  font-size: 18px;
+  font-size: 20px;
   font-weight: 800;
   margin-bottom: 8px;
 }
@@ -84,7 +88,7 @@ body {
 .tileDesc {
   color: #666;
   font-size: 13px;
-  line-height: 1.35;
+  line-height: 1.4;
 }
 
 .tile.left,
@@ -226,6 +230,13 @@ button.danger {
   white-space: nowrap;
 }
 
+.itemReading {
+  margin-top: 8px;
+  color: #444;
+  line-height: 1.45;
+  font-size: 14px;
+}
+
 .itemSentence {
   margin-top: 8px;
   color: #333;
@@ -279,6 +290,17 @@ button.danger {
 
 .feedback.bad {
   color: #b00020;
+}
+
+.quizReveal {
+  margin-top: 10px;
+  padding: 12px 14px;
+  border: 1px solid #e7e7ef;
+  border-radius: 14px;
+  background: #fafafa;
+  color: #222;
+  line-height: 1.5;
+  font-weight: 700;
 }
 
 @media (max-width: 860px) {
