@@ -15,6 +15,7 @@ import {
   deleteDoc,
   writeBatch,
   serverTimestamp,
+  increment,
 } from "https://www.gstatic.com/firebasejs/12.0.0/firebase-firestore.js";
 import {
   getAuth,
@@ -45,7 +46,7 @@ const LANGUAGE_CONFIG = {
   english: {
     key: "english",
     label: "영어",
-    collectionName: "items", // 기존 영어 데이터 유지
+    collectionName: "items",
     usesReading: false,
     wordLabel: "단어",
     readingLabel: "",
@@ -98,7 +99,7 @@ let currentLanguage = null;
    In-memory cache (real-time)
 ========================= */
 let currentUid = null;
-let itemsCache = []; // language-dependent items
+let itemsCache = [];
 let unsubItems = null;
 
 /* =========================
@@ -238,10 +239,10 @@ async function fsClearAll() {
   await batch.commit();
 }
 
-async function fsIncCorrect(id, nextValue) {
+async function fsIncCorrect(id) {
   if (!currentUid) throw new Error("Not signed in");
   await updateDoc(doc(db, "users", currentUid, getLangConfig().collectionName, id), {
-    correctCount: nextValue,
+    correctCount: increment(1),
   });
 }
 
@@ -473,9 +474,8 @@ function syncScreenTexts() {
   const cfg = getLangConfig();
   if (!cfg) return;
 
-  const searchPlaceholder = cfg.searchPlaceholder;
-  document.getElementById("search").placeholder = searchPlaceholder;
-  document.getElementById("archiveSearch").placeholder = searchPlaceholder;
+  document.getElementById("search").placeholder = cfg.searchPlaceholder;
+  document.getElementById("archiveSearch").placeholder = cfg.searchPlaceholder;
   document.getElementById("qAnswer").placeholder = cfg.quizAnswerPlaceholder;
 }
 
@@ -882,8 +882,10 @@ const qFeedback = document.getElementById("qFeedback");
 const quizMeta = document.getElementById("quizMeta");
 const qHint = document.getElementById("qHint");
 const qReveal = document.getElementById("qReveal");
+const qProgress = document.getElementById("qProgress");
 
 let currentQuiz = null;
+let lastQuizItemId = null;
 
 function getQuizPool() {
   return itemsCache.filter((it) => it.correctCount < 100);
@@ -918,6 +920,7 @@ function resetQuizUI() {
   qAnswer.value = "";
   qReveal.textContent = "";
   qReveal.classList.add("hidden");
+  qProgress.textContent = "";
   currentQuiz = null;
 }
 
@@ -930,7 +933,13 @@ function nextQuestion() {
     return;
   }
 
-  const pick = items[Math.floor(Math.random() * items.length)];
+  let candidates = items;
+  if (items.length > 1 && lastQuizItemId) {
+    const filtered = items.filter((it) => it.id !== lastQuizItemId);
+    if (filtered.length > 0) candidates = filtered;
+  }
+
+  const pick = candidates[Math.floor(Math.random() * candidates.length)];
   const blanked = makeBlankByLanguage(pick.sentence, pick.word);
 
   currentQuiz = {
@@ -939,12 +948,16 @@ function nextQuestion() {
     reading: pick.reading || "",
     sentence: pick.sentence,
     blankedSentence: blanked,
+    correctCount: pick.correctCount ?? 0,
   };
+
+  lastQuizItemId = pick.id;
 
   qHint.textContent = cfg?.usesReading
     ? `예문 속 빈칸의 ${cfg.readingLabel}을 입력하세요.`
     : "예문 속 단어를 빈칸에 넣으세요.";
 
+  qProgress.textContent = `정답 횟수: ${currentQuiz.correctCount}/100`;
   qSentence.textContent = blanked;
   qAnswer.value = "";
   qFeedback.textContent = "";
@@ -971,15 +984,17 @@ async function checkAnswer() {
   }
 
   if (correct) {
-    const it = itemsCache.find((x) => x.id === currentQuiz.itemId);
-    const nextValue = (it?.correctCount ?? 0) + 1;
+    const nextValue = (currentQuiz.correctCount ?? 0) + 1;
 
     try {
-      await fsIncCorrect(currentQuiz.itemId, nextValue);
+      await fsIncCorrect(currentQuiz.itemId);
     } catch (err) {
       alert("정답 카운트 업데이트 실패: " + (err?.message ?? err));
       return;
     }
+
+    currentQuiz.correctCount = nextValue;
+    qProgress.textContent = `정답 횟수: ${nextValue}/100`;
 
     if (nextValue >= 100) {
       qFeedback.textContent = "정답 ✅ 이 단어는 아카이브로 이동합니다.";
@@ -994,8 +1009,13 @@ async function checkAnswer() {
       qReveal.classList.remove("hidden");
     }
 
-    setTimeout(() => nextQuestion(), 700);
+    setTimeout(() => {
+      nextQuestion();
+      qAnswer.focus();
+    }, 1100);
   } else {
+    qProgress.textContent = `정답 횟수: ${currentQuiz.correctCount}/100`;
+
     if (cfg?.usesReading) {
       qFeedback.textContent = `오답 ❌ 정답 ${cfg.readingLabel}: ${currentQuiz.reading}`;
       qReveal.textContent = `${cfg.wordLabel}: ${currentQuiz.word}`;
@@ -1008,7 +1028,10 @@ async function checkAnswer() {
 }
 
 qCheck.addEventListener("click", checkAnswer);
-qSkip.addEventListener("click", () => nextQuestion());
+qSkip.addEventListener("click", () => {
+  nextQuestion();
+  qAnswer.focus();
+});
 
 qAnswer.addEventListener("keydown", (e) => {
   if (e.key !== "Enter") return;
@@ -1075,7 +1098,6 @@ function makeBlankByLanguage(sentence, word) {
   return makeBlankSimple(sentence, word);
 }
 
-// 영어: 원형/ed/ing 블랭킹
 function makeBlankEnglish(sentence, word) {
   const base = word.trim();
   if (!base) return sentence;
@@ -1095,7 +1117,6 @@ function makeBlankEnglish(sentence, word) {
   return sentence;
 }
 
-// 중국어/일본어: 최초 입력 단어 그대로 블랭킹
 function makeBlankSimple(sentence, word) {
   if (!word) return sentence;
   if (!sentence.includes(word)) {
