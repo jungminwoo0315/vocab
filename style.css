@@ -269,6 +269,11 @@ button.danger {
   margin-top: 12px;
 }
 
+.quizProgress {
+  margin-top: 4px;
+  font-weight: 700;
+}
+
 .qSentence {
   margin: 10px 0 14px;
   font-size: 18px;
