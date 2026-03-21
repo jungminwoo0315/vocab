@@ -39,6 +39,8 @@ const db = getFirestore(app);
 const auth = getAuth(app);
 const provider = new GoogleAuthProvider();
 
+const ARCHIVE_THRESHOLD = 20;
+
 /* =========================
    Language config
 ========================= */
@@ -372,7 +374,7 @@ function showScreen(name) {
     listTitle.textContent = cfg.listTitle;
   } else if (name === "archive") {
     screenTitle.textContent = cfg.archiveTitle;
-    screenSub.textContent = "정답 100번 이상인 단어";
+    screenSub.textContent = `정답 ${ARCHIVE_THRESHOLD}번 이상인 단어`;
     archiveTitle.textContent = cfg.archiveTitle;
   } else if (name === "quiz") {
     screenTitle.textContent = cfg.quizTitle;
@@ -771,7 +773,7 @@ function itemMatchesQuery(it, q) {
 }
 
 function renderList() {
-  const baseItems = itemsCache.filter((it) => it.correctCount < 100);
+  const baseItems = itemsCache.filter((it) => it.correctCount < ARCHIVE_THRESHOLD);
   const q = (searchInput.value || "").trim().toLowerCase();
   const sorted = getSortedItems(baseItems, sortSelect.value);
 
@@ -788,7 +790,7 @@ function renderList() {
 }
 
 function renderArchive() {
-  const baseItems = itemsCache.filter((it) => it.correctCount >= 100);
+  const baseItems = itemsCache.filter((it) => it.correctCount >= ARCHIVE_THRESHOLD);
   const q = (archiveSearchInput.value || "").trim().toLowerCase();
   const sorted = getSortedItems(baseItems, archiveSortSelect.value);
 
@@ -888,7 +890,7 @@ let currentQuiz = null;
 let lastQuizItemId = null;
 
 function getQuizPool() {
-  return itemsCache.filter((it) => it.correctCount < 100);
+  return itemsCache.filter((it) => it.correctCount < ARCHIVE_THRESHOLD);
 }
 
 function refreshQuizMeta() {
@@ -957,7 +959,7 @@ function nextQuestion() {
     ? `예문 속 빈칸의 ${cfg.readingLabel}을 입력하세요.`
     : "예문 속 단어를 빈칸에 넣으세요.";
 
-  qProgress.textContent = `정답 횟수: ${currentQuiz.correctCount}/100`;
+  qProgress.textContent = `정답 횟수: ${currentQuiz.correctCount}/${ARCHIVE_THRESHOLD}`;
   qSentence.textContent = blanked;
   qAnswer.value = "";
   qFeedback.textContent = "";
@@ -994,9 +996,9 @@ async function checkAnswer() {
     }
 
     currentQuiz.correctCount = nextValue;
-    qProgress.textContent = `정답 횟수: ${nextValue}/100`;
+    qProgress.textContent = `정답 횟수: ${nextValue}/${ARCHIVE_THRESHOLD}`;
 
-    if (nextValue >= 100) {
+    if (nextValue >= ARCHIVE_THRESHOLD) {
       qFeedback.textContent = "정답 ✅ 이 단어는 아카이브로 이동합니다.";
     } else {
       qFeedback.textContent = "정답 ✅";
@@ -1014,7 +1016,7 @@ async function checkAnswer() {
       qAnswer.focus();
     }, 1100);
   } else {
-    qProgress.textContent = `정답 횟수: ${currentQuiz.correctCount}/100`;
+    qProgress.textContent = `정답 횟수: ${currentQuiz.correctCount}/${ARCHIVE_THRESHOLD}`;
 
     if (cfg?.usesReading) {
       qFeedback.textContent = `오답 ❌ 정답 ${cfg.readingLabel}: ${currentQuiz.reading}`;
