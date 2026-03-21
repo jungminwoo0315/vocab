@@ -1,3 +1,5 @@
+/* 🔥 기존 그대로 + 홈 다크 추가 */
+
 * { box-sizing: border-box; }
 
 body {
@@ -6,6 +8,39 @@ body {
   background: #f6f7fb;
   color: #111;
 }
+
+/* 🔥 홈 화면 다크 */
+#home {
+  background: #0f172a;
+  padding: 20px;
+  border-radius: 20px;
+}
+
+/* 홈 안 텍스트 밝게 */
+#home .tile {
+  background: #1e293b;
+  color: #fff;
+  border-color: #334155;
+}
+
+#home .tileDesc {
+  color: #cbd5e1;
+}
+
+#home .tileTitle {
+  color: #fff;
+}
+
+#home .muted {
+  color: #94a3b8;
+}
+
+/* 🔥 hover 느낌 추가 */
+#home .tile:hover {
+  background: #334155;
+}
+
+/* ================= 기존 ================= */
 
 .app {
   max-width: 1000px;
