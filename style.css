@@ -1,5 +1,3 @@
-/* 🔥 기존 그대로 + 홈 다크 추가 */
-
 * { box-sizing: border-box; }
 
 body {
@@ -8,39 +6,6 @@ body {
   background: #f6f7fb;
   color: #111;
 }
-
-/* 🔥 홈 화면 다크 */
-#home {
-  background: #0f172a;
-  padding: 20px;
-  border-radius: 20px;
-}
-
-/* 홈 안 텍스트 밝게 */
-#home .tile {
-  background: #1e293b;
-  color: #fff;
-  border-color: #334155;
-}
-
-#home .tileDesc {
-  color: #cbd5e1;
-}
-
-#home .tileTitle {
-  color: #fff;
-}
-
-#home .muted {
-  color: #94a3b8;
-}
-
-/* 🔥 hover 느낌 추가 */
-#home .tile:hover {
-  background: #334155;
-}
-
-/* ================= 기존 ================= */
 
 .app {
   max-width: 1000px;
@@ -107,7 +72,7 @@ body {
   cursor: pointer;
   min-height: 140px;
   box-shadow: 0 6px 18px rgba(0,0,0,0.05);
-  transition: transform 0.08s ease;
+  transition: transform 0.08s ease, background 0.15s ease, border-color 0.15s ease;
 }
 
 .tile:active {
@@ -341,6 +306,44 @@ button.danger {
   color: #222;
   line-height: 1.5;
   font-weight: 700;
+}
+
+/* 홈 화면만 다크 */
+#home {
+  background: linear-gradient(180deg, #111827 0%, #0f172a 100%);
+  border: 1px solid #1f2937;
+  border-radius: 24px;
+  padding: 22px;
+  box-shadow: 0 14px 34px rgba(0,0,0,0.22);
+}
+
+#home .tile {
+  background: #1f2937;
+  border-color: #374151;
+  color: #f9fafb;
+  box-shadow: 0 8px 22px rgba(0,0,0,0.18);
+}
+
+#home .tile.left,
+#home .tile.mid,
+#home .tile.right {
+  border-left: 8px solid #60a5fa;
+}
+
+#home .tileTitle {
+  color: #f9fafb;
+}
+
+#home .tileDesc {
+  color: #cbd5e1;
+}
+
+#home .muted {
+  color: #94a3b8;
+}
+
+#home .tile:hover {
+  background: #273449;
 }
 
 @media (max-width: 860px) {
