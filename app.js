@@ -40,6 +40,7 @@ const auth = getAuth(app);
 const provider = new GoogleAuthProvider();
 
 const ARCHIVE_THRESHOLD = 20;
+const ARCHIVE_QUIZ_CHANCE = 0.1; // 10% 확률로 아카이브 문제 출제
 
 /* =========================
    Language config
@@ -889,20 +890,35 @@ const qProgress = document.getElementById("qProgress");
 let currentQuiz = null;
 let lastQuizItemId = null;
 
-function getQuizPool() {
+function getActiveQuizPool() {
   return itemsCache.filter((it) => it.correctCount < ARCHIVE_THRESHOLD);
 }
 
+function getArchiveQuizPool() {
+  return itemsCache.filter((it) => it.correctCount >= ARCHIVE_THRESHOLD);
+}
+
+function getAllQuizPool() {
+  return [...itemsCache];
+}
+
 function refreshQuizMeta() {
-  const items = getQuizPool();
-  quizMeta.textContent = items.length ? `퀴즈 대상 단어: ${items.length}개` : "";
+  const activeItems = getActiveQuizPool();
+  const archiveItems = getArchiveQuizPool();
+
+  if (!activeItems.length && !archiveItems.length) {
+    quizMeta.textContent = "";
+    return;
+  }
+
+  quizMeta.textContent = `활성 ${activeItems.length}개 · 아카이브 ${archiveItems.length}개 (아카이브 10% 출제)`;
 }
 
 function startQuiz() {
   resetQuizUI();
-  const items = getQuizPool();
+  const allItems = getAllQuizPool();
 
-  if (items.length === 0) {
+  if (allItems.length === 0) {
     quizEmpty.classList.remove("hidden");
     quizBox.classList.add("hidden");
     quizMeta.textContent = "";
@@ -926,23 +942,44 @@ function resetQuizUI() {
   currentQuiz = null;
 }
 
+function pickQuizPool() {
+  const activePool = getActiveQuizPool();
+  const archivePool = getArchiveQuizPool();
+
+  if (activePool.length === 0 && archivePool.length === 0) {
+    return [];
+  }
+
+  if (activePool.length === 0) {
+    return archivePool;
+  }
+
+  if (archivePool.length === 0) {
+    return activePool;
+  }
+
+  const useArchive = Math.random() < ARCHIVE_QUIZ_CHANCE;
+  return useArchive ? archivePool : activePool;
+}
+
 function nextQuestion() {
   const cfg = getLangConfig();
-  const items = getQuizPool();
+  const pool = pickQuizPool();
 
-  if (items.length === 0) {
+  if (pool.length === 0) {
     startQuiz();
     return;
   }
 
-  let candidates = items;
-  if (items.length > 1 && lastQuizItemId) {
-    const filtered = items.filter((it) => it.id !== lastQuizItemId);
+  let candidates = pool;
+  if (pool.length > 1 && lastQuizItemId) {
+    const filtered = pool.filter((it) => it.id !== lastQuizItemId);
     if (filtered.length > 0) candidates = filtered;
   }
 
   const pick = candidates[Math.floor(Math.random() * candidates.length)];
   const blanked = makeBlankByLanguage(pick.sentence, pick.word);
+  const isArchived = pick.correctCount >= ARCHIVE_THRESHOLD;
 
   currentQuiz = {
     itemId: pick.id,
@@ -951,15 +988,19 @@ function nextQuestion() {
     sentence: pick.sentence,
     blankedSentence: blanked,
     correctCount: pick.correctCount ?? 0,
+    isArchived,
   };
 
   lastQuizItemId = pick.id;
 
   qHint.textContent = cfg?.usesReading
-    ? `예문 속 빈칸의 ${cfg.readingLabel}을 입력하세요.`
-    : "예문 속 단어를 빈칸에 넣으세요.";
+    ? `예문 속 빈칸의 ${cfg.readingLabel}을 입력하세요.${isArchived ? " (아카이브 문제)" : ""}`
+    : `예문 속 단어를 빈칸에 넣으세요.${isArchived ? " (아카이브 문제)" : ""}`;
 
-  qProgress.textContent = `정답 횟수: ${currentQuiz.correctCount}/${ARCHIVE_THRESHOLD}`;
+  qProgress.textContent = isArchived
+    ? `아카이브 문제 · 정답 횟수: ${currentQuiz.correctCount}`
+    : `정답 횟수: ${currentQuiz.correctCount}/${ARCHIVE_THRESHOLD}`;
+
   qSentence.textContent = blanked;
   qAnswer.value = "";
   qFeedback.textContent = "";
@@ -996,10 +1037,14 @@ async function checkAnswer() {
     }
 
     currentQuiz.correctCount = nextValue;
-    qProgress.textContent = `정답 횟수: ${nextValue}/${ARCHIVE_THRESHOLD}`;
+    qProgress.textContent = currentQuiz.isArchived
+      ? `아카이브 문제 · 정답 횟수: ${nextValue}`
+      : `정답 횟수: ${nextValue}/${ARCHIVE_THRESHOLD}`;
 
-    if (nextValue >= ARCHIVE_THRESHOLD) {
+    if (!currentQuiz.isArchived && nextValue >= ARCHIVE_THRESHOLD) {
       qFeedback.textContent = "정답 ✅ 이 단어는 아카이브로 이동합니다.";
+    } else if (currentQuiz.isArchived) {
+      qFeedback.textContent = "정답 ✅ (아카이브 문제)";
     } else {
       qFeedback.textContent = "정답 ✅";
     }
@@ -1016,7 +1061,9 @@ async function checkAnswer() {
       qAnswer.focus();
     }, 1100);
   } else {
-    qProgress.textContent = `정답 횟수: ${currentQuiz.correctCount}/${ARCHIVE_THRESHOLD}`;
+    qProgress.textContent = currentQuiz.isArchived
+      ? `아카이브 문제 · 정답 횟수: ${currentQuiz.correctCount}`
+      : `정답 횟수: ${currentQuiz.correctCount}/${ARCHIVE_THRESHOLD}`;
 
     if (cfg?.usesReading) {
       qFeedback.textContent = `오답 ❌ 정답 ${cfg.readingLabel}: ${currentQuiz.reading}`;
